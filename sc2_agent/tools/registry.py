@@ -125,6 +125,14 @@ class ToolRegistry:
             results.append(await self.execute(call.name, call.arguments))
         return results
 
+    def filter(self, *, namespaces: set[str]) -> "ToolRegistry":
+        """Return a child registry containing only tools in the given namespaces."""
+        child = ToolRegistry()
+        for name, tool in self._tools.items():
+            if name.split(".", 1)[0] in namespaces:
+                child.register(tool)
+        return child
+
     def __len__(self) -> int:
         return len(self._tools)
 

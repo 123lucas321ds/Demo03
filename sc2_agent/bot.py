@@ -73,6 +73,7 @@ from sc2_agent.tools.cmd import (
     CmdUseAbilityTool,
 )
 from sc2_agent.tools.ctrl import CommitTool, AbortTool, DiscoverToolsTool
+from sc2_agent.tools.dispatch import DispatchObserveTool, DispatchPlanTool
 from sc2_agent.tools.econ import (
     EconBuildGasTool,
     EconExpandTool,
@@ -474,6 +475,9 @@ class SC2AgentBot(BotAI):
         self._tool_registry.register(CommitTool(self._commit_controller))
         self._tool_registry.register(AbortTool(self._commit_controller))
         self._tool_registry.register(DiscoverToolsTool(self._tool_registry))
+        # -- dispatch tools (subAgent-based) --
+        self._tool_registry.register(DispatchObserveTool(self._tool_registry, self._llm_adapter))
+        self._tool_registry.register(DispatchPlanTool(self._tool_registry, self._llm_adapter))
         self._tool_registry.register(SkillLoadTool(self._skill_loader))
 
     # ------------------------------------------------------------------

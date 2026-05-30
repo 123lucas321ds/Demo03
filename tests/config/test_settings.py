@@ -11,7 +11,7 @@ def test_settings_defaults() -> None:
     assert settings.burnysc2_path == DEFAULT_BURNYSC2_PATH
     assert settings.log_level == "INFO"
     assert settings.history_token_budget == 12_000
-    assert settings.max_agent_iterations == 60
+    assert settings.max_agent_iterations == 80
     assert settings.subagent_max_iterations == 10
 
 

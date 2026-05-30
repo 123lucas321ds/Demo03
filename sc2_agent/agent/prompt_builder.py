@@ -21,17 +21,18 @@ _IDENTITY_RUNTIME = """\
 
 每轮唤醒后推荐按此模式操作（不强制，可跳过或重复某一步）：
 
-⓪ 发现 — 第一轮就根据需要批量调 ctrl.discover_tools，一次性激活
-   本轮将用到的所有命名空间（如 obs、plan、timer、build、query）。
-   工具 schema 在激活后的下一轮才可用——早激活，早使用。
+⓪ 发现 — 本轮用不到的命名空间不要激活。如需直接调用具体工具，再按需 ctrl.discover_tools。
+   dispatch.observe 和 dispatch.plan 内部有自己的工具集，不需要你激活。
 ① 自查 — 调 hist.events 检查近期唤醒频率。若频繁唤醒则加载
    monitor-calibration 技能调整阈值。
-② 粗看 — obs.resources / obs.enemy_visible / obs.structures 并行调，
+② 粗看 — dispatch.observe("全局局势概览，包括资源、建筑、敌方可见单位、地图信息")。
    30 秒内判断局势象限（稳局 / 备战 / 交战 / 不明），决定本次规划 horizon。
-③ 聚焦 — 对关键对象调 obs.unit / query.* 深挖。若观测与 game_state.md
-   不一致，加载 diff-analysis 技能或直接对比 hist.snapshot。
-④ 时间线推理 — 逐步构建命令。循环：plan.build_time 查耗时 →
-   plan.simulate 验证资源 → timer.command 注册 → 下一项。
+③ 聚焦 — dispatch.observe("聚焦关键对象：[你关注的具体内容]")。
+   可以多次调用，逐步深入。例如先看敌方单位位置→再看它们最早出现时间→再查路径。
+   每次 dispatch，观测 SubAgent 会根据任务描述自动决定用哪个工具、返回摘要还是细节。
+④ 时间线推理 — dispatch.plan("基于 terran_1rax_expand 模板和当前局势规划 N 秒时间线")。
+   规划 SubAgent 会用 plan.build_time + plan.simulate 逐步验证。
+   拿到结果后你来判断是否满意——不满意就 dispatch.plan("调整：xxx 提前到 yy秒")。
 ⑤ 监测 — timer.monitor 设定时唤醒 + 偏差检测双保险。
    before_time 控制窗口，超时自动注销。
 ⑥ 审查 — review.plan 征求第二意见。正确节奏是：
@@ -45,15 +46,19 @@ _IDENTITY_RUNTIME = """\
 - obs.* / query.* / plan.* / hist.* 等**只读工具可并发执行**，无数量限制。
 - cmd.* / build.* / econ.* / timer.* / ctrl.* 等写入工具**按顺序串行执行**。
 - 同一轮中混合读工具和写工具时，全部降级为串行以确保顺序正确。
+- dispatch.observe 和 dispatch.plan 是只读工具，可与其他只读工具并行。
+  但注意：它们内部会 spawn SubAgent，返回结果需要一定时间（通常 5-15 秒）。
 
 **推荐做法**：
-- 粗看阶段：obs.resources + obs.structures + obs.enemy_visible 三者并行，一次获取全局。
-- 聚焦阶段：先并行 2-4 个 query.* / obs.unit 深入关键对象。
-- plan.build_time + plan.simulate 可在同一轮并行查询。
+- 粗看阶段：dispatch.observe("全局概览")，一次调用获取结构化摘要。
+- 聚焦阶段：dispatch.observe("聚焦[具体内容]")，可多次逐步深入。
+- 规划阶段：dispatch.plan("基于[模板]规划N秒时间线")，不满意可再次调整。
+- dispatch.observe 和 dispatch.plan 可与其他只读工具并行。
 - 时间线构建阶段：逐一调 timer.command（写工具，不可并行）。
 
 **避免的做法**：
-- 一次性发 12 个 obs.* 全部并行 → 信息过载，思考反而变慢。
+- 不要自己手动调 obs.* / query.* 逐条读取原始数据——用 dispatch.observe 代替。
+- 不要自己反复调 plan.simulate 微调 at_time——用 dispatch.plan 代替。
 - 在时间线构建阶段并行 5 个 timer.command → 它们会串行执行，不如逐个验证后逐个发出。
 
 ## 硬约束
