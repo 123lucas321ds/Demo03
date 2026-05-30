@@ -117,8 +117,10 @@ class PlanCommand:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, source: str = "staged") -> "PlanCommand":
-        # Also look inside "arguments" sub-dict (timer.command format)
+        # Look inside "arguments" (timer.command format) or "args" (plan.simulate format)
         args = data.get("arguments", {}) if isinstance(data.get("arguments"), dict) else {}
+        if not args:
+            args = data.get("args", {}) if isinstance(data.get("args"), dict) else {}
 
         item_name = (
             data.get("item_name")

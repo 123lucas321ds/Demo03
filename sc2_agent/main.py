@@ -35,8 +35,11 @@ def main() -> int:
             realtime=False,
         )
         logger.info("Game result: %s", result)
+    except AssertionError:
+        logger.info("Game ended (burnysc2 observation assertion — normal)")
+        return 0
     except Exception as e:
-        logger.exception("Game crashed: %s", e)
+        logger.exception("Game crashed: {}", e)
         return 1
 
     return 0

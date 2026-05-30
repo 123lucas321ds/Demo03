@@ -670,8 +670,7 @@ class SC2AgentBot(BotAI):
 
     def _save_snapshot_and_events(self) -> None:
         """Persist the current observation snapshot and log staged timers as key events."""
-        snapshot = self._obs_adapter.snapshot()
-        self._obs_store.update(snapshot)
+        snapshot = self._obs_store.snapshot()  # use cached — adapter may fail mid-commit
         self._snapshot_recorder.save(
             kind="decision",
             game_time=snapshot.game_time,
@@ -847,9 +846,21 @@ class SC2AgentBot(BotAI):
         # and the agent burns tokens in an infinite error loop.
         if result.stop_reason != "committed":
             if self._state_machine.state == RuntimeState.PAUSED_THINKING:
-                _logger.info("Agent did not commit — aborting and sleeping")
+                _logger.info("Agent did not commit — sleeping with wake timer")
                 self._commit_controller.abort(reason=result.stop_reason)
+                from sc2_agent.timer.models import TimerMonitor
+                self._timer_store.register([], [
+                    TimerMonitor(
+                        id="fallback_wake",
+                        metric="game_time", op=">=",
+                        value=self.time + 1,
+                        reason="Fallback: previous wake aborted without commit",
+                        created_at=self.time, wake_id=self._wake_id,
+                    )
+                ])
                 self._state_machine.commit_to_sleep()
+        else:
+            self._consecutive_aborts = 0
 
     # ------------------------------------------------------------------
     # Timing recorder
@@ -891,7 +902,10 @@ class SC2AgentBot(BotAI):
         Called on each ``on_step`` while the runtime is in
         ``RUNNING_SLEEP``.
         """
-        snapshot = self._obs_adapter.snapshot()
+        try:
+            snapshot = self._obs_adapter.snapshot()
+        except Exception:
+            return  # burnysc2 hasn't produced observation yet — skip this tick
         self._obs_store.update(snapshot)
         game_time = snapshot.game_time
         sched_result = await self._timer_scheduler.tick(game_time)

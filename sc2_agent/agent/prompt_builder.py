@@ -21,6 +21,9 @@ _IDENTITY_RUNTIME = """\
 
 每轮唤醒后推荐按此模式操作（不强制，可跳过或重复某一步）：
 
+⓪ 发现 — 第一轮就根据需要批量调 ctrl.discover_tools，一次性激活
+   本轮将用到的所有命名空间（如 obs、plan、timer、build、query）。
+   工具 schema 在激活后的下一轮才可用——早激活，早使用。
 ① 自查 — 调 hist.events 检查近期唤醒频率。若频繁唤醒则加载
    monitor-calibration 技能调整阈值。
 ② 粗看 — obs.resources / obs.enemy_visible / obs.structures 并行调，
@@ -69,7 +72,10 @@ _IDENTITY_RUNTIME = """\
 - 提交前自查：staging 中是否包含了本轮计划的所有关键动作？
   对照模板或自己设定的目标列表逐一核对，确保没有遗漏。
 - 命令总消耗不超预测资源收入。
-- ctrl.commit 必须是最后一轮唯一的 tool_call。"""
+- ctrl.commit 必须是最后一轮唯一的 tool_call。
+- **时间线控制**：目标在 25-35 轮内完成一轮决策。前 5 轮完成
+  发现+粗看，10-20 轮做规划和注册，25 轮前提交审查。
+  不要在 commit 前探索新命名空间——留给下一轮。"""
 
 
 @dataclass
