@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC2 Agent — 对局复盘</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg0:#080c10; --bg1:#0f151c; --bg2:#161d26; --bg3:#1c2530;
+  --fg0:#c9d1d9; --fg1:#8b949e; --fg2:#6e7681;
+  --ac:#58a6ff; --gr:#3fb950; --or:#f78166; --ye:#d29922; --re:#f85149; --pu:#bc8cff;
+  --border:#21262d;
+  --font:'Segoe UI',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono','Cascadia Code',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg0);color:var(--fg0);font-family:var(--font);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* drop zone */
+#dz{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:var(--bg0);transition:all .3s}
+#dz.drag{background:#0d2137}
+#dz.drag .dz-inner{border-color:var(--ac);transform:scale(1.02)}
+.dz-inner{border:2px dashed var(--border);border-radius:16px;padding:56px 72px;text-align:center;transition:all .3s;cursor:pointer}
+.dz-inner h1{font-size:26px;font-weight:600;margin-bottom:6px;letter-spacing:-0.5px}
+.dz-inner h1 span{color:var(--ac)}
+.dz-inner p{color:var(--fg1);font-size:13px;margin-top:8px}
+.dz-inner .hint{font-size:11px;color:var(--fg2);margin-top:6px}
+#dz.hidden{display:none}
+
+/* app */
+#app{display:none;flex-direction:column;height:100vh}
+#app.on{display:flex}
+
+/* topbar */
+#bar{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:var(--bg1);border-bottom:1px solid var(--border);min-height:44px;flex-shrink:0}
+#bar .title{font-weight:600;font-size:14px;letter-spacing:-0.3px}
+#bar .title em{color:var(--ac);font-style:normal}
+#bar .meta{font-size:11px;color:var(--fg1);font-family:var(--mono);display:flex;gap:20px;flex-wrap:wrap}
+#bar .meta b{color:var(--fg0)}
+#bar button{background:var(--bg2);border:1px solid var(--border);color:var(--fg0);padding:4px 12px;border-radius:5px;cursor:pointer;font-size:11px;transition:all .15s}
+#bar button:hover{background:var(--bg3);border-color:var(--ac)}
+
+/* main */
+#main{display:flex;flex:1;overflow:hidden}
+#think{flex:1.2;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)}
+#think-scroll{flex:1;overflow-y:auto;padding:16px}
+#side{width:440px;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+
+/* blocks */
+.block{margin-bottom:20px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg1)}
+.block-hdr{padding:8px 14px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--fg2)}
+.block-hdr .tag{font-weight:600;font-size:11px}
+.block-hdr .tag.t-assistant{color:var(--ac)}
+.block-hdr .tag.t-tool{color:var(--gr)}
+.block .thought{padding:10px 14px;font-size:13px;line-height:1.6;color:var(--fg0);white-space:pre-wrap}
+.block .calls{padding:8px 14px}
+.call{display:flex;align-items:flex-start;gap:8px;padding:6px 10px;margin:4px 0;border-radius:6px;background:var(--bg2);font-size:12px;font-family:var(--mono);cursor:pointer;flex-wrap:wrap}
+.call .c-name{color:var(--ac);font-weight:500;white-space:nowrap}
+.call .c-args{color:var(--fg1);font-size:11px;word-break:break-all;flex:1;min-width:0}
+.call .c-ok{color:var(--gr);margin-left:auto;white-space:nowrap;font-size:11px}
+.call .c-err{color:var(--re);margin-left:auto;white-space:nowrap;font-size:11px}
+.call .c-result{font-size:10px;color:var(--fg1);margin-top:2px;display:none;width:100%;white-space:pre-wrap;max-height:160px;overflow-y:auto;background:var(--bg0);padding:6px 8px;border-radius:4px}
+.call.open .c-result{display:block}
+
+/* chart */
+#ch-wrap{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0}
+#ch-wrap h3{font-size:10px;color:var(--fg2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px}
+#resChart{width:100%!important;height:180px!important}
+
+/* summary */
+#summary{padding:12px 14px;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0;font-family:var(--mono);font-size:11px}
+#summary h3{font-size:10px;color:var(--fg2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+#summary .grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 16px}
+#summary .grid div{display:flex;justify-content:space-between}
+#summary .grid .k{color:var(--fg1)} #summary .grid .v{color:var(--fg0);font-weight:500}
+
+/* scrollbar */
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:var(--bg1)}::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:3px}
+</style>
+</head>
+<body>
+
+<div id="dz">
+  <div class="dz-inner" onclick="document.getElementById('fiFolder').click()">
+    <h1>SC2 Agent <span>Replay</span></h1>
+    <p>拖拽对局目录到此处</p>
+    <p class="hint">例如 storage/2026-05-30_14-51-51（含 sessions/default.jsonl）</p>
+  </div>
+  <input type="file" id="fiFolder" hidden webkitdirectory onchange="handleFolderSelect(this.files)">
+</div>
+
+<div id="app">
+  <div id="bar">
+    <div class="title">Agent <em>思考过程</em> — <span id="barDir"></span></div>
+    <div class="meta" id="barMeta"></div>
+    <button onclick="location.reload()">加载其他目录</button>
+  </div>
+
+  <div id="main">
+    <div id="think"><div id="think-scroll"></div></div>
+    <div id="side">
+      <div id="ch-wrap"><h3>资源变化（从观测结果提取）</h3><canvas id="resChart"></canvas></div>
+      <div id="summary"><h3>决策摘要</h3><div class="grid" id="sumGrid"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const dzHintEl=$('.dz-inner p');
+
+function setDropStatus(text){
+  if(dzHintEl) dzHintEl.textContent=text;
+}
+
+function showLoadError(message){
+  setDropStatus(`加载失败：${message}`);
+}
+
+// --- drop folder ---
+const dz=$('#dz');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('drag');
+  const items=e.dataTransfer?.items;
+  if(items&&items.length){
+    readDroppedEntries(items).then(files=>{
+      if(files.length) loadFromFiles(files);
+      else showLoadError('未读取到文件，请拖入完整目录。');
+    }).catch(err=>showLoadError(err?.message||String(err)));
+    return;
+  }
+  const files=Array.from(e.dataTransfer?.files||[]);
+  if(files.length) loadFromFiles(files);
+  else showLoadError('未读取到文件，请拖入完整目录。');
+});
+
+async function readDroppedEntries(items){
+  const files=[];
+  for(const item of items){
+    if(item.kind!=='file') continue;
+    const entry=item.webkitGetAsEntry();
+    if(!entry) continue;
+    await traverse(entry,'',files);
+  }
+  return files;
+}
+
+function traverse(entry,prefix,files){
+  return new Promise(resolve=>{
+    if(entry.isFile){
+      entry.file(f=>{f._relPath=prefix+f.name;files.push(f);resolve();});
+    }else if(entry.isDirectory){
+      const reader=entry.createReader();
+      const readBatch=()=>reader.readEntries(async entries=>{
+        if(!entries.length){ resolve(); return; }
+        for(const e of entries) await traverse(e,prefix+entry.name+'/',files);
+        readBatch();
+      });
+      readBatch();
+    }else resolve();
+  });
+}
+
+function handleFolderSelect(flist){
+  const files=[];
+  for(const f of flist) files.push(f);
+  if(files.length) loadFromFiles(files);
+  else showLoadError('未读取到文件，请选择包含 sessions/default.jsonl 的目录。');
+}
+
+async function loadFromFiles(files){
+  setDropStatus('正在解析文件...');
+  try{
+    const byName={};
+    const normalizePath=n=>n.replace(/\\/g,'/');
+    const parseJsonl=text=>text.split('\n').filter(l=>l.trim()).map(l=>{try{return JSON.parse(l)}catch(_){return null}}).filter(Boolean);
+    const normalizeSessionRecord=r=>{
+      if(r&&typeof r==='object'&&r.role) return r;
+      if(r&&typeof r==='object'&&r.message&&typeof r.message==='object'&&r.message.role) return r.message;
+      return r;
+    };
+    const detectKind=lower=>{
+      if(lower.endsWith('/sessions/timing.jsonl')||lower.endsWith('timing.jsonl')) return 'timing';
+      if((lower.includes('/sessions/')&&lower.endsWith('.jsonl'))||lower.endsWith('session.jsonl')||lower.endsWith('default.jsonl')) return 'session';
+      if(lower.includes('/logs/')&&lower.endsWith('app.log')) return 'applog';
+      if(lower.endsWith('game_state.md')) return 'gamestate';
+      return null;
+    };
+
+    const targets=[];
+    for(const f of files){
+      const name=normalizePath(f._relPath||f.webkitRelativePath||f.name||'');
+      const lower=name.toLowerCase();
+      const kind=detectKind(lower);
+      if(kind) targets.push({f,kind,name});
+      if(!byName.dirname&&name){
+        const parts=name.split('/').filter(Boolean);
+        byName.dirname=parts.length>1?parts[0]:parts[parts.length-1];
+      }
+    }
+
+    for(const t of targets){
+      const text=await t.f.text();
+      if(t.kind==='gamestate'){
+        byName.gamestate=text;
+        continue;
+      }
+      const parsed=parseJsonl(text);
+      if(t.kind==='timing') byName.timing=(byName.timing||[]).concat(parsed);
+      else if(t.kind==='session') byName.session=(byName.session||[]).concat(parsed.map(normalizeSessionRecord).filter(Boolean));
+      else if(t.kind==='applog') byName.applog=(byName.applog||[]).concat(parsed);
+    }
+
+    const allSess=byName.session||[];
+    init(allSess,byName.timing||[],byName.applog||[],byName.dirname);
+  }catch(err){
+    showLoadError(err?.message||String(err));
+  }
+}
+
+// --- init ---
+function init(session,timing,applog,dirname){
+  dz.classList.add('hidden');$('#app').classList.add('on');
+  $('#barDir').textContent=dirname||'sessions/default.jsonl';
+  const scroll=$('#think-scroll');
+
+  // Build timing lookup: index by line offset (skip metadata line)
+  const tlMap={};
+  const meta=session.find(m=>m._type==='metadata');
+  const offset=meta?1:0;
+  const msgs=session.filter(m=>m.role==='assistant'||m.role==='tool');
+  for(let i=0;i<Math.min(msgs.length,timing.length);i++){
+    tlMap[i]={game_time:timing[i].game_time,elapsed_ms:timing[i].elapsed_ms,wall_time:timing[i].wall_time,role:timing[i].role,tool_name:timing[i].tool_name};
+  }
+
+  // group assistant + its tool results
+  const blocks=[];
+  let cur=null, msgIdx=0;
+  for(const m of msgs){
+    if(m.role==='assistant'){
+      if(cur) blocks.push(cur);
+      const t=tlMap[msgIdx]||{};
+      cur={role:'assistant',content:m.content,tool_calls:m.tool_calls||[],results:[],ts:blocks.length,game_time:t.game_time,elapsed_ms:t.elapsed_ms,wall_time:t.wall_time};
+    }else if(m.role==='tool'&&cur){
+      const t=tlMap[msgIdx]||{};
+      if(!cur.game_time&&t.game_time) cur.game_time=t.game_time;
+      m._timing=t;
+      cur.results.push(m);
+    }
+    msgIdx++;
+  }
+  if(cur) blocks.push(cur);
+
+  // extract resource points from tool results
+  const rpoints=[], labels=[];
+  for(const b of blocks){
+    for(const r of b.results){
+      try{
+        const c=typeof r.content==='string'?JSON.parse(r.content):r.content;
+        if(!c||!c.ok) continue;
+        const d=c.data;
+        if(d&&d.minerals!==undefined){
+          rpoints.push({minerals:d.minerals,gas:d.gas||0,supply:d.supply_used||0,step:rpoints.length});
+          labels.push('#'+rpoints.length);
+        }
+      }catch(_){}
+    }
+  }
+
+  if(!blocks.length){
+    scroll.innerHTML='<div style="padding:40px;text-align:center;color:var(--fg1)">未能解析到有效对话记录。<br>请确认目录中包含 sessions/default.jsonl 与 sessions/timing.jsonl。</div>';
+    drawChart([{minerals:0,gas:0,supply:0,step:0}],['--']);
+    return;
+  }
+
+  // stats
+  const totalTools=blocks.reduce((s,b)=>s+b.tool_calls.length,0);
+  const totalThoughts=blocks.filter(b=>b.content).length;
+  const commitBlocks=blocks.filter(b=>b.tool_calls.some(tc=>tc.function?.name==='ctrl.commit'));
+  const abortBlocks=blocks.filter(b=>b.tool_calls.some(tc=>tc.function?.name==='ctrl.abort'));
+  const toolNames=[...new Set(blocks.flatMap(b=>b.tool_calls.map(tc=>tc.function?.name||'')))].filter(Boolean).sort();
+
+  $('#barMeta').innerHTML=
+    `<div>回合: <b>${blocks.length}</b></div><div>思考: <b>${totalThoughts}</b></div><div>工具: <b>${totalTools}</b></div><div>种类: <b>${toolNames.length}</b></div>`+
+    (meta?`<div>${meta.created_at||'-'}</div>`:'');
+
+  // render
+  scroll.innerHTML='';
+  for(let i=0;i<blocks.length;i++){
+    const b=blocks[i];
+    const div=document.createElement('div');div.className='block';
+
+    const hdr=document.createElement('div');hdr.className='block-hdr';
+    const tag=document.createElement('span');
+    if(b.tool_calls.some(tc=>tc.function?.name==='ctrl.commit')){tag.className='tag t-tool';tag.textContent='✓ 提交'}
+    else if(b.tool_calls.some(tc=>tc.function?.name==='ctrl.abort')){tag.className='tag t-tool';tag.textContent='✗ 放弃'}
+    else if(!b.tool_calls.length){tag.className='tag t-assistant';tag.textContent='■ 最终回复'}
+    else{tag.className='tag t-assistant';tag.textContent=`▸ 回合 ${i+1}`}
+    hdr.appendChild(tag);
+    const info=document.createElement('span');info.style.color='var(--fg2)';
+    let infoText=`${b.tool_calls.length} 工具 · ${b.results.length} 结果`;
+    if(b.game_time!==undefined) infoText+=` · T=${b.game_time.toFixed(0)}s`;
+    if(b.elapsed_ms) infoText+=` · ${(b.elapsed_ms/1000).toFixed(1)}s`;
+    info.textContent=infoText;
+    hdr.appendChild(info);
+    div.appendChild(hdr);
+
+    if(b.content){
+      const th=document.createElement('div');th.className='thought';th.textContent=b.content;
+      div.appendChild(th);
+    }
+
+    if(b.tool_calls.length){
+      const calls=document.createElement('div');calls.className='calls';
+      for(const tc of b.tool_calls){
+        const fn=tc.function||{};
+        const name=fn.name||'?';
+        let args=fn.arguments;
+        if(typeof args==='object') args=JSON.stringify(args);
+        const c=document.createElement('div');c.className='call';
+        const result=b.results.find(r=>r.tool_call_id===tc.id);
+        const rt=result?._timing;
+        let extra='';
+        if(rt&&rt.elapsed_ms) extra=` <span style="color:var(--fg2);font-size:10px">${(rt.elapsed_ms/1000).toFixed(1)}s</span>`;
+        c.innerHTML=`<span class="c-name">${name}</span><span class="c-args">${(args||'').substring(0,100)}</span>${extra}`;
+        if(result){
+          try{
+            const rc=typeof result.content==='string'?JSON.parse(result.content):result.content;
+            if(rc&&rc.ok){c.innerHTML+=`<span class="c-ok">OK</span>`}
+            else{c.innerHTML+=`<span class="c-err">${rc?.code||'FAIL'}</span>`}
+          }catch(_){c.innerHTML+=`<span class="c-err">ERR</span>`}
+        }
+        c.onclick=function(){
+          this.classList.toggle('open');
+          if(this.classList.contains('open')&&result){
+            let cr=this.querySelector('.c-result');
+            if(!cr){
+              cr=document.createElement('div');cr.className='c-result';
+              cr.textContent=typeof result.content==='string'?result.content:JSON.stringify(result.content,null,2);
+              this.appendChild(cr);
+            }
+          }
+        };
+        calls.appendChild(c);
+      }
+      div.appendChild(calls);
+    }
+    scroll.appendChild(div);
+  }
+
+  // chart
+  if(rpoints.length>1) drawChart(rpoints,labels);
+  else drawChart([{minerals:0,gas:0,supply:0,step:0}],['--']);
+
+  // summary
+  const nsCount={};
+  for(const b of blocks) for(const tc of b.tool_calls){
+    const ns=(tc.function?.name||'?').split('.')[0];
+    nsCount[ns]=(nsCount[ns]||0)+1;
+  }
+  let sumHTML='';
+  for(const [ns,c] of Object.entries(nsCount).sort((a,b)=>b[1]-a[1]))
+    sumHTML+=`<div><span class="k">${ns}.*</span><span class="v">${c} 次</span></div>`;
+  sumHTML+=`<div><span class="k">提交</span><span class="v">${commitBlocks.length}</span></div>`;
+  sumHTML+=`<div><span class="k">放弃</span><span class="v">${abortBlocks.length}</span></div>`;
+  $('#sumGrid').innerHTML=sumHTML;
+}
+
+function drawChart(points,labels){
+  const ctx=$('#resChart').getContext('2d');
+  if(window._chart) window._chart.destroy();
+  window._chart=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:'Minerals',data:points.map(p=>p.minerals),borderColor:'#58a6ff',backgroundColor:'rgba(88,166,255,0.08)',tension:0.3,pointRadius:2,pointBackgroundColor:'#58a6ff',borderWidth:1.5},
+        {label:'Vespene',data:points.map(p=>p.gas),borderColor:'#3fb950',backgroundColor:'rgba(63,185,80,0.08)',tension:0.3,pointRadius:2,pointBackgroundColor:'#3fb950',borderWidth:1.5},
+        {label:'Supply',data:points.map(p=>p.supply),borderColor:'#f78166',backgroundColor:'rgba(247,129,102,0.08)',tension:0.3,pointRadius:2,pointBackgroundColor:'#f78166',borderWidth:1.5},
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{labels:{color:'#8b949e',font:{size:10},boxWidth:10,padding:10}}},
+      scales:{
+        x:{ticks:{color:'#6e7681',font:{size:9},maxRotation:0},grid:{color:'#21262d'}},
+        y:{ticks:{color:'#6e7681',font:{size:9}},grid:{color:'#21262d'}}
+      },
+      interaction:{intersect:false,mode:'index'}
+    }
+  });
+}
+</script>
+</body>
+</html>
