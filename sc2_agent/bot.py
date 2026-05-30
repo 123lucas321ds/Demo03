@@ -154,19 +154,18 @@ class _LLMConsolidationProvider:
     def __init__(self, llm_adapter: SC2LLMAdapter) -> None:
         self._llm = llm_adapter
 
-    def consolidate(
+    async def consolidate(
         self,
         *,
         messages: list[dict[str, Any]],
         current_state: dict[str, Any],
     ) -> ConsolidationUpdate | dict[str, Any]:
-        import asyncio
         prompt = self._build_prompt(messages, current_state)
         try:
-            resp = asyncio.run(self._llm.chat(
+            resp = await self._llm.chat(
                 messages=[{"role": "user", "content": prompt}],
                 tools=[],
-            ))
+            )
             return ConsolidationUpdate.from_raw(json.loads(resp.content or "{}"))
         except Exception:
             return ConsolidationUpdate.from_raw(current_state)
@@ -264,7 +263,7 @@ class SC2AgentBot(BotAI):
         try:
             self._llm_adapter = SC2LLMAdapter(client_specs=client_specs)
         except (ImportError, ValueError, OSError, KeyError, IndexError) as exc:
-            _logger.warning("LLM adapter unavailable; agent loop will abort gracefully: %s", exc)
+            _logger.warning("LLM adapter unavailable; agent loop will abort gracefully: {}", exc)
             self._llm_adapter = _UnavailableLLM(str(exc))
 
         # 8. Agent runner ------------------------------------------------------
@@ -482,11 +481,11 @@ class SC2AgentBot(BotAI):
     # ------------------------------------------------------------------
 
     def _make_tool_summary(self) -> str:
-        """Group registered tools by namespace and return a human-readable summary.
+        """Return a namespace-level summary — counts only, no individual tool names.
 
-        Each line in the output has the form::
-
-            ns.* -- N tools: ns.tool_a, ns.tool_b, ...
+        Individual tool schemas are only available after calling
+        ``ctrl.discover_tools(namespace)``.  The Agent must activate a
+        namespace before using any tool in it.
         """
         names = self._tool_registry.tool_names
         groups: dict[str, list[str]] = {}
@@ -496,10 +495,14 @@ class SC2AgentBot(BotAI):
 
         lines: list[str] = []
         for ns in sorted(groups):
-            tool_list = sorted(groups[ns])
-            lines.append(
-                f"{ns}.* -- {len(tool_list)} tools: {', '.join(tool_list)}"
-            )
+            count = len(groups[ns])
+            lines.append(f"{ns}.* — {count} tools")
+        lines.append("")
+        lines.append(
+            "ctrl.* is always active.  Before using any other namespace, "
+            "call ctrl.discover_tools(\"namespace\") to activate it and "
+            "get the full parameter schemas.  Do not guess parameter names."
+        )
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
@@ -730,11 +733,11 @@ class SC2AgentBot(BotAI):
             facts, wake_id=self._wake_id, game_time=snapshot.game_time,
         )
 
-    def _consolidate_memory(self) -> None:
+    async def _consolidate_memory(self) -> None:
         """Run memory consolidation when the unconsolidated token budget is exceeded."""
         if self._session is None:
             return
-        self._memory_consolidator.consolidate_session(
+        await self._memory_consolidator.consolidate_session(
             session=self._session,
             memory_store=self._memory_store,
             wake_id=self._wake_id,
@@ -764,7 +767,7 @@ class SC2AgentBot(BotAI):
         self._session = self._session_manager.load("default") or Session(
             key="default"
         )
-        _logger.info("Game state initialised at %.0fs", snapshot.game_time)
+        _logger.info("Game state initialised at {:.0f}s", snapshot.game_time)
 
     # ------------------------------------------------------------------
     # Agent thinking loop
@@ -830,9 +833,9 @@ class SC2AgentBot(BotAI):
         self._commit_controller.services.pending_messages = lambda: []
 
         if result.error:
-            _logger.error("Agent run error: %s", result.error)
+            _logger.error("Agent run error: {}", result.error)
         _logger.info(
-            "Agent run completed: wake=%d stop=%s tools=%d tokens=%d",
+            "Agent run completed: wake={} stop={} tools={} tokens={}",
             self._wake_id,
             result.stop_reason,
             len(result.tools_used),
@@ -893,13 +896,13 @@ class SC2AgentBot(BotAI):
         game_time = snapshot.game_time
         sched_result = await self._timer_scheduler.tick(game_time)
         if sched_result.executed:
-            _logger.debug("Executed timer commands: %s", sched_result.executed)
+            _logger.debug("Executed timer commands: {}", sched_result.executed)
         if sched_result.triggered:
-            _logger.info("Monitor triggers: %s", sched_result.triggered)
+            _logger.info("Monitor triggers: {}", sched_result.triggered)
         if sched_result.expired:
-            _logger.debug("Expired monitors: %s", sched_result.expired)
+            _logger.debug("Expired monitors: {}", sched_result.expired)
         if sched_result.failed:
-            _logger.warning("Timer commands failed: %s", sched_result.failed)
+            _logger.warning("Timer commands failed: {}", sched_result.failed)
             self._state_machine.wake_to_thinking()
 
         # Periodic snapshots
@@ -956,15 +959,6 @@ class SC2AgentBot(BotAI):
         * **RUNNING_SLEEP**: tick the timer scheduler (commands +
           monitors).
         """
-        # Stop after 60 seconds of game time (for development testing).
-        if self.time >= 60.0 and self._game_initialized and not getattr(self, '_time_limit_logged', False):
-            _logger.info("Game time limit reached (60s), bot going idle")
-            self._time_limit_logged = True
-        if self.time >= 60.0 and self._game_initialized:
-            if self._state_machine.state == RuntimeState.PAUSED_THINKING:
-                self._state_machine.commit_to_sleep()
-            return
-
         if not self._game_initialized:
             self._init_game_state()
             self._game_initialized = True

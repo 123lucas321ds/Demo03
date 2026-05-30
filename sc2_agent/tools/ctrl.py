@@ -73,18 +73,33 @@ class DiscoverToolsTool(Tool):
 
     @property
     def description(self) -> str:
-        return "List currently registered tool schemas or names."
+        return (
+            "Activate a tool namespace and return its tool schemas. "
+            "Available namespaces: build, cmd, econ, squad, plan, review, hist. "
+            "obs, query, ctrl, timer are always active."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "properties": {"include_schemas": {"type": "boolean"}},
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Namespace to activate (e.g. 'build', 'plan', 'review').",
+                },
+            },
+            "required": ["namespace"],
         }
 
     async def execute(self, **kwargs: Any) -> Any:
-        include_schemas = bool(kwargs.get("include_schemas", False))
+        namespace = kwargs["namespace"]
+        added = self._registry.activate_namespace(namespace)
+        ns_tools = [n for n in self._registry.tool_names if n.startswith(namespace + ".")]
         return {
-            "tool_names": self._registry.tool_names,
-            "schemas": self._registry.schemas() if include_schemas else [],
+            "namespace": namespace,
+            "activated": added > 0,
+            "tool_count": len(ns_tools),
+            "tools": ns_tools,
+            "schemas": [self._registry.get(n).to_schema() for n in ns_tools if self._registry.get(n)],
         }

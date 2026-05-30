@@ -23,7 +23,7 @@ def _resolve_api_key(value: str) -> str:
         env_name = value[4:]
         result = os.getenv(env_name, "")
         if not result:
-            _logger.warning("Env var %s is not set or empty", env_name)
+            _logger.warning("Env var {} is not set or empty", env_name)
         return result
     return value
 
@@ -63,7 +63,7 @@ class SC2LLMAdapter:
                 tools=self._convert_tools(tools) if tools else None,
             )
         except Exception as exc:
-            _logger.error("LLM API call failed: %s", exc)
+            _logger.error("LLM API call failed: {}", exc)
             return LLMResponse(
                 content=None, tool_calls=[], usage={}, finish_reason="error",
             )
@@ -72,14 +72,20 @@ class SC2LLMAdapter:
         msg = choice.message
         tool_calls = []
         if msg.tool_calls:
-            tool_calls = [
-                ToolCall(
-                    id=tc.id,
-                    name=SC2LLMAdapter._unsanitize_name(tc.function.name),
-                    arguments=json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments,
+            for tc in msg.tool_calls:
+                raw_args = tc.function.arguments
+                try:
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                except (json.JSONDecodeError, TypeError) as e:
+                    _logger.warning("Failed to parse tool-call arguments for {} (len={}): {}", tc.function.name, len(str(raw_args)), e)
+                    args = {"_parse_error": str(e), "_raw": str(raw_args)[:500]}
+                tool_calls.append(
+                    ToolCall(
+                        id=tc.id,
+                        name=SC2LLMAdapter._unsanitize_name(tc.function.name),
+                        arguments=args,
+                    )
                 )
-                for tc in msg.tool_calls
-            ]
         usage = {}
         if result.usage:
             usage = {

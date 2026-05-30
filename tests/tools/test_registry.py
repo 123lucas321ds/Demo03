@@ -149,10 +149,10 @@ def test_discover_tools_lists_registered_names_and_optional_schemas() -> None:
     registry.register(RecordingTool("obs.echo", []))
     registry.register(DiscoverToolsTool(registry))
 
-    names = asyncio.run(registry.execute("ctrl.discover_tools", {"include_schemas": False}))
-    schemas = asyncio.run(registry.execute("ctrl.discover_tools", {"include_schemas": True}))
+    result = asyncio.run(registry.execute("ctrl.discover_tools", {"namespace": "obs"}))
 
-    assert names.ok
-    assert names.data["tool_names"] == ["obs.echo", "ctrl.discover_tools"]
-    assert names.data["schemas"] == []
-    assert schemas.data["schemas"][0]["function"]["name"] == "obs.echo"
+    assert result.ok
+    assert result.data["namespace"] == "obs"
+    assert result.data["activated"] is True
+    assert "obs.echo" in result.data["tools"]
+    assert any(s["function"]["name"] == "obs.echo" for s in result.data["schemas"])

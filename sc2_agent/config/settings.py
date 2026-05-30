@@ -33,7 +33,7 @@ class Settings:
     burnysc2_path: Path = DEFAULT_BURNYSC2_PATH
     log_level: str = "INFO"
     history_token_budget: int = 12_000
-    max_agent_iterations: int = 20
+    max_agent_iterations: int = 40
     subagent_max_iterations: int = 10
     snapshot_decision_keep: int = 5
     snapshot_recent_keep: int = 5

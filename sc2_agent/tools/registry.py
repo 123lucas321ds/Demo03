@@ -10,10 +10,14 @@ from sc2_agent.tools.base import Tool, ToolCall
 
 
 class ToolRegistry:
-    """Registry for schema-validated tools."""
+    """Registry for schema-validated tools with progressive namespace disclosure."""
+
+    # Namespaces always visible in every LLM call.
+    _DEFAULT_ACTIVE: set[str] = {"ctrl"}
 
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        self._active_namespaces: set[str] = set(self._DEFAULT_ACTIVE)
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
@@ -31,8 +35,20 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         return list(self._tools.keys())
 
+    def activate_namespace(self, namespace: str) -> int:
+        """Mark a namespace as active and return how many tools were added."""
+        if namespace in self._active_namespaces:
+            return 0
+        self._active_namespaces.add(namespace)
+        return sum(1 for name in self._tools if name.startswith(namespace + "."))
+
     def schemas(self) -> list[dict[str, Any]]:
-        return [tool.to_schema() for tool in self._tools.values()]
+        """Return schemas for tools in active namespaces only."""
+        return [
+            tool.to_schema()
+            for name, tool in self._tools.items()
+            if name.split(".", 1)[0] in self._active_namespaces
+        ]
 
     async def execute(self, name: str, arguments: dict[str, Any] | None = None) -> Result:
         """Execute one tool with schema cast and validation."""
